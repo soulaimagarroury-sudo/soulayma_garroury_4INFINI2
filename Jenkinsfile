@@ -2,55 +2,50 @@ pipeline {
     agent any
 
     environment {
-        // change this to your Docker Hub username and repository
-        IMAGE_NAME = "soulayma1/student-management"
-        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        DOCKER_IMAGE = "soulayma1/student-management"
+        VERSION = "1.0"
+        DOCKER_USER = credentials('dockerhub-cred').username
+        DOCKER_PASS = credentials('dockerhub-cred').password
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 git credentialsId: 'github-private-token',
-                    url: 'https://github.com/soulaimagarroury-sudo/soulayma_garroury_4INFINI2.git',
-                    branch: 'main'
+                    url: 'https://github.com/soulaimagarroury-sudo/soulayma_garroury_4INFINI2.git'
             }
         }
 
         stage('Build (Maven)') {
             steps {
-                // Use the wrapper if present
-                sh './mvnw clean package -DskipTests'
+                sh "chmod +x mvnw"
+                sh "./mvnw clean package -DskipTests"
             }
         }
 
         stage('Docker Build') {
             steps {
-                // Build Docker image using the jar created in target/
-                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
-                // Also tag with latest
-                sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest"
+                sh "docker build -t ${DOCKER_IMAGE}:${VERSION} ."
+                sh "docker tag ${DOCKER_IMAGE}:${VERSION} ${DOCKER_IMAGE}:latest"
             }
         }
 
         stage('Docker Push') {
-    steps {
-        withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', 
-                                          usernameVariable: 'DOCKER_USER', 
-                                          passwordVariable: 'DOCKER_PASS')]) {
-            script {
-                docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-cred') {
-                    docker.image("soulayma1/student-management:${env.BUILD_NUMBER}").push()
-                }
+            steps {
+                sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
+                sh "docker push ${DOCKER_IMAGE}:${VERSION}"
+                sh "docker push ${DOCKER_IMAGE}:latest"
             }
         }
     }
 
     post {
         success {
-            echo "Pipeline finished SUCCESS - image: ${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "Pipeline SUCCESS ✔️"
         }
         failure {
-            echo "Pipeline FAILED"
+            echo "Pipeline FAILED ❌"
         }
     }
 }
