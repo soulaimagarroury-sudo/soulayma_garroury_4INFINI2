@@ -1,34 +1,59 @@
 pipeline {
     agent any
 
+    environment {
+        // change this to your Docker Hub username and repository
+        IMAGE_NAME = "soulayma1/student-management"
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
+    }
+
     stages {
         stage('Checkout') {
             steps {
-                // Récupération du code depuis le dépôt privé GitHub (branche main)
-                checkout([$class: 'GitSCM',
-                    branches: [[name: '*/main']],
-                    userRemoteConfigs: [[
-                        url: 'https://github.com/soulaimagarroury-sudo/soulayma_garroury_4INFINI2.git',
-                        credentialsId: 'github-private-token'
-                    ]]
-                ])
+                git credentialsId: 'github-private-token',
+                    url: 'https://github.com/soulaimagarroury-sudo/soulayma_garroury_4INFINI2.git',
+                    branch: 'main'
             }
         }
 
-        stage('Build') {
+        stage('Build (Maven)') {
             steps {
-                // Nettoyage et génération du livrable sans exécuter les tests
-                sh 'mvn clean package -DskipTests'
+                // Use the wrapper if present
+                sh './mvnw clean package -DskipTests'
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                // Build Docker image using the jar created in target/
+                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+                // Also tag with latest
+                sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest"
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                // Use Jenkins-stored Docker Hub credentials
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
+                                                 usernameVariable: 'DOCKER_USER',
+                                                 passwordVariable: 'DOCKER_PASSWORD')]) {
+                    // login, push tags, logout
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USER --password-stdin'
+                    sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
+                    sh "docker push ${IMAGE_NAME}:latest"
+                    sh 'docker logout'
+                }
             }
         }
     }
 
     post {
         success {
-            echo '✅ Build successful! Livrable généré avec succès.'
+            echo "Pipeline finished SUCCESS - image: ${IMAGE_NAME}:${IMAGE_TAG}"
         }
         failure {
-            echo '❌ Build failed! Veuillez vérifier la console Jenkins.'
+            echo "Pipeline FAILED"
         }
     }
 }
