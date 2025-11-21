@@ -24,12 +24,16 @@ pipeline {
         }
 
         stage('Docker Build') {
-            steps {
-                // Build Docker image using the jar created in target/
-                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
-                // Also tag with latest
-                sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest"
-            }
+    steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
+                                          usernameVariable: 'DOCKER_USER',
+                                          passwordVariable: 'DOCKER_PASS')]) {
+            sh """
+               echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+               docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+               docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+            """
+        }
         }
 
        stage('Docker Push') {
