@@ -34,12 +34,12 @@ pipeline {
 
         stage('Docker Push') {
     steps {
-        withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', 
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', 
                                           usernameVariable: 'DOCKER_USER', 
                                           passwordVariable: 'DOCKER_PASS')]) {
             script {
-                docker.withRegistry('https://index.docker.io/v1/', 'docker-hub-credentials') {
-                    docker.image("soulayma/student-management:${env.BUILD_NUMBER}").push()
+                docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-cred') {
+                    docker.image("soulayma1/student-management:${env.BUILD_NUMBER}").push()
                 }
             }
         }
