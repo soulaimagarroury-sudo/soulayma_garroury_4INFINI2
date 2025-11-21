@@ -39,7 +39,7 @@ pipeline {
                                           passwordVariable: 'DOCKER_PASS')]) {
             sh """
                echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-               docker push soulayma1/student-management:45
+               docker push soulayma1/student-management:44
             """
         }
             }
