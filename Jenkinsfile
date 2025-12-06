@@ -3,7 +3,9 @@ pipeline {
 
     environment {
         IMAGE_NAME = "soulayma1/student-management"
-        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        IMAGE_TAG  = "${env.BUILD_NUMBER}"
+        K8S_DIR    = "k8s"
+        NAMESPACE  = "devops"
     }
 
     stages {
@@ -23,15 +25,14 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                // Login to Docker Hub before building
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
                                                   usernameVariable: 'DOCKER_USER',
                                                   passwordVariable: 'DOCKER_PASS')]) {
-                    sh """
-                       echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                       docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                       docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
-                    """
+                    sh '''
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                    '''
                 }
             }
         }
@@ -41,19 +42,38 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
                                                   usernameVariable: 'DOCKER_USER',
                                                   passwordVariable: 'DOCKER_PASS')]) {
-                    sh """
-                       echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                       docker push ${IMAGE_NAME}:${IMAGE_TAG}
-                       docker push ${IMAGE_NAME}:latest
-                    """
+                    sh '''
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${IMAGE_NAME}:latest
+                    '''
                 }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                // Sélectionne le contexte Minikube
+                sh "kubectl config use-context minikube || true"
+
+                // Déploiement des manifests K8s
+                sh "kubectl apply -n ${NAMESPACE} -f ${K8S_DIR}/mysql-pvc.yaml || true"
+                sh "kubectl apply -n ${NAMESPACE} -f ${K8S_DIR}/mysql-deployment.yaml"
+                sh "kubectl apply -n ${NAMESPACE} -f ${K8S_DIR}/spring-deployment.yaml"
+                sh "kubectl apply -n ${NAMESPACE} -f ${K8S_DIR}/spring-service.yaml"
+
+                // Met à jour l'image du déploiement Spring Boot
+                sh "kubectl -n ${NAMESPACE} set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record || true"
+                
+                // Vérifie le rollout pour s'assurer que le déploiement est terminé
+                sh "kubectl -n ${NAMESPACE} rollout status deployment/springboot-app --timeout=120s"
             }
         }
     }
 
     post {
         success {
-            echo "Pipeline finished SUCCESS - image: ${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "Pipeline finished SUCCESS - ${IMAGE_NAME}:${IMAGE_TAG}"
         }
         failure {
             echo "Pipeline FAILED"
