@@ -42,7 +42,7 @@ pipeline {
             }
         } 
 
-       stage('Deploy to Kubernetes') {
+  stage('Deploy to Kubernetes') {
     steps {
         sh '''
         # Utiliser le contexte Minikube
@@ -58,16 +58,20 @@ pipeline {
             fi
         done
 
+        # Supprimer les pods Spring Boot existants pour éviter le blocage
+        kubectl -n devops delete pod -l app=springboot-app --ignore-not-found
+
         # Mettre à jour l'image du déploiement Spring Boot si le déploiement existe
         if kubectl get deployment springboot-app -n devops > /dev/null 2>&1; then
-            kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG}
-            kubectl -n devops rollout status deployment/springboot-app --timeout=180s
+            kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record
+            kubectl -n devops rollout status deployment/springboot-app --timeout=300s
         else
             echo "Deployment springboot-app not found, skipping image update."
         fi
         '''
     }
 }
+
 
     }
 
