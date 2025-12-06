@@ -21,22 +21,20 @@ pipeline {
             }
         }
 
-        stage('Docker Build (Minikube)') {
-            steps {
-                sh '''
-                   # Configurer Docker pour utiliser le Docker de Minikube
-                   eval $(minikube -p minikube docker-env)
+       stage('Docker Build (Minikube)') {
+    steps {
+        sh '''
+           # Récupérer les variables Docker de Minikube
+           $(minikube -p minikube docker-env --shell bash)
 
-                   # Build l'image directement dans Minikube
-                   docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                   docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+           # Build l'image directement dans Minikube
+           docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+           docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
 
-                   # Afficher les images pour vérification
-                   docker images
-                '''
-            }
-        } 
-
+           docker images
+        '''
+    }
+}
         stage('Deploy to Kubernetes') {
             steps {
                 sh '''
