@@ -7,7 +7,6 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 git credentialsId: 'github-private-token',
@@ -22,13 +21,12 @@ pipeline {
             }
         }
 
-       stage('Docker Build & Push') {
+        stage('Docker Build & Push') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
                                                   usernameVariable: 'DOCKER_USER',
                                                   passwordVariable: 'DOCKER_PASS')]) {
-                    sh """ 
-                  
+                    sh """
                        # Login Docker Hub
                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
@@ -42,9 +40,9 @@ pipeline {
                     """
                 }
             }
+        } 
 
-
-        stage('Deploy to Kubernetes') {
+stage('Deploy to Kubernetes') {
             steps {
                 sh '''
                 # Utiliser le contexte Minikube
