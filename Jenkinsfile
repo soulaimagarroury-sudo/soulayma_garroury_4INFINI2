@@ -21,58 +21,61 @@ pipeline {
             }
         }
 
-        stage('Docker Build') {
+        stage('Docker Build & Push') {
             steps {
-                // Login to Docker Hub before building
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
                                                   usernameVariable: 'DOCKER_USER',
                                                   passwordVariable: 'DOCKER_PASS')]) {
                     sh """
+                       # Login Docker Hub
                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+                       # Build image
                        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
-                    """
-                }
-            }
-        }
 
-        stage('Docker Push') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
-                                                  usernameVariable: 'DOCKER_USER',
-                                                  passwordVariable: 'DOCKER_PASS')]) {
-                    sh """
-                       echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                       # Push images
                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
                        docker push ${IMAGE_NAME}:latest
                     """
                 }
             }
         } 
+
         stage('Deploy to Kubernetes') {
-           steps {
-            sh '''
-            # Utiliser le contexte Minikube
-            kubectl config use-context minikube
+            steps {
+                sh '''
+                # Utiliser le contexte Minikube
+                kubectl config use-context minikube
 
-            # Déployer MySQL
-            kubectl apply -n devops -f k8s/mysql-pvc.yaml
-            kubectl apply -n devops -f k8s/mysql-deployment.yaml
-            kubectl apply -n devops -f k8s/mysql-service.yaml
+                # Liste des fichiers à appliquer
+                files=(
+                    k8s/mysql-pvc.yaml
+                    k8s/mysql-deployment.yaml
+                    k8s/mysql-service.yaml
+                    k8s/spring-deployment.yaml
+                    k8s/spring-service.yaml
+                )
 
-            # Déployer Spring Boot
-            kubectl apply -n devops -f k8s/spring-deployment.yaml
-            kubectl apply -n devops -f k8s/spring-service.yaml
+                for f in "${files[@]}"; do
+                    if [ -f "$f" ]; then
+                        echo "Applying $f"
+                        kubectl apply -n devops -f "$f"
+                    else
+                        echo "File $f not found, skipping..."
+                    fi
+                done
 
-            # Mettre à jour l'image du déploiement Spring Boot
-            kubectl -n devops set image deployment/springboot-app springboot-app=soulayma1/student-management:61
-
-            # Attendre que le déploiement Spring Boot soit prêt
-            kubectl -n devops rollout status deployment/springboot-app --timeout=180s
-        '''
-    }
-}
-
+                # Mettre à jour l'image du déploiement Spring Boot si le déploiement existe
+                if kubectl get deployment springboot-app -n devops > /dev/null 2>&1; then
+                    kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG}
+                    kubectl -n devops rollout status deployment/springboot-app --timeout=180s
+                else
+                    echo "Deployment springboot-app not found, skipping image update."
+                fi
+                '''
+            }
+        }
     }
 
     post {
