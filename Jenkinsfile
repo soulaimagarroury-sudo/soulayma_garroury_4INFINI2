@@ -43,33 +43,41 @@ pipeline {
         } 
 
 stage('Deploy to Kubernetes') {
-            steps {
-                sh '''
-                # Utiliser le contexte Minikube
-                kubectl config use-context minikube
+    steps {
+        sh '''
+        # Utiliser le contexte Minikube
+        kubectl config use-context minikube
 
-                # Appliquer les fichiers YAML si présents
-                for f in k8s/mysql-pvc.yaml k8s/mysql-deployment.yaml k8s/mysql-service.yaml k8s/spring-deployment.yaml k8s/spring-service.yaml; do
-                    if [ -f "$f" ]; then
-                        echo "Applying $f"
-                        kubectl apply -n devops -f "$f"
-                    else
-                        echo "File $f not found, skipping..."
-                    fi
-                done
+        # Utiliser l'image Docker locale de Minikube
+        eval $(minikube -p minikube docker-env)
 
-                # Patch du deployment Spring Boot pour utiliser l'image locale
-                kubectl -n devops patch deployment springboot-app \
-                  -p '{"spec":{"template":{"spec":{"containers":[{"name":"springboot-app","image":"'"${IMAGE_NAME}:${IMAGE_TAG}"'","imagePullPolicy":"Never"}]}}}}'
+        # Appliquer les fichiers YAML si présents
+        for f in k8s/mysql-pvc.yaml k8s/mysql-deployment.yaml k8s/mysql-service.yaml k8s/spring-deployment.yaml k8s/spring-service.yaml; do
+            if [ -f "$f" ]; then
+                echo "Applying $f"
+                kubectl apply -n devops -f "$f"
+            else
+                echo "File $f not found, skipping..."
+            fi
+        done
 
-                # Supprimer les pods existants pour forcer le rollout
-                kubectl -n devops delete pod -l app=springboot-app --ignore-not-found
+        # Patch du deployment Spring Boot pour utiliser l'image locale
+        kubectl -n devops patch deployment springboot-app \
+          -p '{"spec":{"template":{"spec":{"containers":[{"name":"springboot-app","image":"'"${IMAGE_NAME}:${IMAGE_TAG}"'","imagePullPolicy":"Never"}]}}}}'
 
-                # Attendre que le déploiement soit terminé
-                kubectl -n devops rollout status deployment/springboot-app --timeout=300s
-                '''
-            }
-        }
+        # Supprimer les pods existants pour forcer le rollout
+        kubectl -n devops delete pod -l app=springboot-app --ignore-not-found
+
+        # Attendre que le déploiement soit terminé
+        # Timeout plus long si nécessaire
+        kubectl -n devops rollout status deployment/springboot-app --timeout=600s
+
+        # Vérifier l'état final
+        kubectl -n devops get pods -o wide
+        '''
+    }
+}
+
 
     }
 
