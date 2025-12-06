@@ -21,64 +21,53 @@ pipeline {
             }
         }
 
-        stage('Docker Build & Push') {
+        stage('Docker Build (Minikube)') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
-                                                  usernameVariable: 'DOCKER_USER',
-                                                  passwordVariable: 'DOCKER_PASS')]) {
-                    sh """
-                       # Login Docker Hub
-                       echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                sh '''
+                   # Configurer Docker pour utiliser le Docker de Minikube
+                   eval $(minikube -p minikube docker-env)
 
-                       # Build image
-                       docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                       docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                   # Build l'image directement dans Minikube
+                   docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                   docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
 
-                       # Push images
-                       docker push ${IMAGE_NAME}:${IMAGE_TAG}
-                       docker push ${IMAGE_NAME}:latest
-                    """
-                }
+                   # Afficher les images pour vérification
+                   docker images
+                '''
             }
         } 
 
-stage('Deploy to Kubernetes') {
-    steps {
-        sh '''
-        # Utiliser le contexte Minikube
-        kubectl config use-context minikube
+        stage('Deploy to Kubernetes') {
+            steps {
+                sh '''
+                   # Utiliser le contexte Minikube
+                   kubectl config use-context minikube
 
-        # Utiliser l'image Docker locale de Minikube
-        eval $(minikube -p minikube docker-env)
+                   # Appliquer les fichiers YAML
+                   for f in k8s/mysql-pvc.yaml k8s/mysql-deployment.yaml k8s/mysql-service.yaml k8s/spring-deployment.yaml k8s/spring-service.yaml; do
+                       if [ -f "$f" ]; then
+                           echo "Applying $f"
+                           kubectl apply -n devops -f "$f"
+                       else
+                           echo "File $f not found, skipping..."
+                       fi
+                   done
 
-        # Appliquer les fichiers YAML si présents
-        for f in k8s/mysql-pvc.yaml k8s/mysql-deployment.yaml k8s/mysql-service.yaml k8s/spring-deployment.yaml k8s/spring-service.yaml; do
-            if [ -f "$f" ]; then
-                echo "Applying $f"
-                kubectl apply -n devops -f "$f"
-            else
-                echo "File $f not found, skipping..."
-            fi
-        done
+                   # Patcher le deployment Spring Boot pour utiliser l'image locale
+                   kubectl -n devops patch deployment springboot-app \
+                     -p '{"spec":{"template":{"spec":{"containers":[{"name":"springboot-app","image":"'"${IMAGE_NAME}:${IMAGE_TAG}"'","imagePullPolicy":"Never"}]}}}}'
 
-        # Patch du deployment Spring Boot pour utiliser l'image locale
-        kubectl -n devops patch deployment springboot-app \
-          -p '{"spec":{"template":{"spec":{"containers":[{"name":"springboot-app","image":"'"${IMAGE_NAME}:${IMAGE_TAG}"'","imagePullPolicy":"Never"}]}}}}'
+                   # Supprimer les pods existants pour forcer le rollout
+                   kubectl -n devops delete pod -l app=springboot-app --ignore-not-found
 
-        # Supprimer les pods existants pour forcer le rollout
-        kubectl -n devops delete pod -l app=springboot-app --ignore-not-found
+                   # Attendre que le déploiement soit terminé
+                   kubectl -n devops rollout status deployment/springboot-app --timeout=600s
 
-        # Attendre que le déploiement soit terminé
-        # Timeout plus long si nécessaire
-        kubectl -n devops rollout status deployment/springboot-app --timeout=600s
-
-        # Vérifier l'état final
-        kubectl -n devops get pods -o wide
-        '''
-    }
-}
-
-
+                   # Vérifier l'état final
+                   kubectl -n devops get pods -o wide
+                '''
+            }
+        }
     }
 
     post {
