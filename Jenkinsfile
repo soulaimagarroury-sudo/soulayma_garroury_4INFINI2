@@ -21,41 +21,54 @@ pipeline {
             }
         }
 
-        stage('Docker Build (Minikube)') {
+        stage('Docker Build') {
             steps {
-                sh '''
-                   # Configurer Docker pour Minikube
-                   $(minikube -p minikube docker-env --shell bash)
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
+                                                  usernameVariable: 'DOCKER_USER',
+                                                  passwordVariable: 'DOCKER_PASS')]) {
+                    sh """
+                       echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                       docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                       docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                    """
+                }
+            }
+        }
 
-                   # Build l'image directement dans Minikube
-                   docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                   docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
-
-                   docker images
-                '''
+        stage('Docker Push') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
+                                                  usernameVariable: 'DOCKER_USER',
+                                                  passwordVariable: 'DOCKER_PASS')]) {
+                    sh """
+                       echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                       docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                       docker push ${IMAGE_NAME}:latest
+                    """
+                }
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
                 sh '''
-                   kubectl config use-context minikube
+                    # Utiliser le contexte Minikube
+                    kubectl config use-context minikube
 
-                   for f in k8s/mysql-pvc.yaml k8s/mysql-deployment.yaml k8s/mysql-service.yaml k8s/spring-deployment.yaml k8s/spring-service.yaml; do
-                       if [ -f "$f" ]; then
-                           echo "Applying $f"
-                           kubectl apply -n devops -f "$f"
-                       else
-                           echo "File $f not found, skipping..."
-                       fi
-                   done
+                    # Déployer MySQL
+                    kubectl apply -n devops -f k8s/mysql-pvc.yaml
+                    kubectl apply -n devops -f k8s/mysql-deployment.yaml
+                    kubectl apply -n devops -f k8s/mysql-service.yaml
 
-                   kubectl -n devops patch deployment springboot-app \
-                     -p '{"spec":{"template":{"spec":{"containers":[{"name":"springboot-app","image":"'"${IMAGE_NAME}:${IMAGE_TAG}"'","imagePullPolicy":"Never"}]}}}}'
+                    # Déployer Spring Boot
+                    kubectl apply -n devops -f k8s/spring-deployment.yaml
+                    kubectl apply -n devops -f k8s/spring-service.yaml
 
-                   kubectl -n devops delete pod -l app=springboot-app --ignore-not-found
-                   kubectl -n devops rollout status deployment/springboot-app --timeout=600s
-                   kubectl -n devops get pods -o wide
+                    # Mettre à jour l'image du déploiement Spring Boot
+                    kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG}
+
+                    # Attendre que le déploiement Spring Boot soit prêt
+                    kubectl -n devops rollout status deployment/springboot-app --timeout=180s
                 '''
             }
         }
