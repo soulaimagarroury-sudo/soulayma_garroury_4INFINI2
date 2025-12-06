@@ -22,18 +22,27 @@ pipeline {
             }
         }
 
-        stage('Docker Build') {
+       stage('Docker Build & Push') {
             steps {
-                sh '''
-                # Utiliser Docker de Minikube pour que Kubernetes puisse accéder à l'image
-                eval $(minikube -p minikube docker-env)
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
+                                                  usernameVariable: 'DOCKER_USER',
+                                                  passwordVariable: 'DOCKER_PASS')]) {
+                    sh """ 
+                     eval $(minikube -p minikube docker-env)
+                       # Login Docker Hub
+                       echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
-                # Construire et tagger l'image
-                docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
-                '''
+                       # Build image
+                       docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                       docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+
+                       # Push images
+                       docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                       docker push ${IMAGE_NAME}:latest
+                    """
+                }
             }
-        }
+
 
         stage('Deploy to Kubernetes') {
             steps {
