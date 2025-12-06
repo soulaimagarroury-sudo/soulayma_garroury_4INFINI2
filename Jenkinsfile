@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         IMAGE_NAME = "soulayma1/student-management"
-        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        IMAGE_TAG  = "${env.BUILD_NUMBER}"
     }
 
     stages {
@@ -45,9 +45,8 @@ pipeline {
         stage('Deploy to Kubernetes') {
             steps {
                 script {
-                    // Configurer l'environnement Docker pour Minikube
-                    def dockerEnvOutput = sh(script: 'minikube -p minikube docker-env', returnStdout: true).trim()
-                    sh "eval \"${dockerEnvOutput}\""
+                    // On ignore minikube docker-env et on utilise l'image du Docker Hub
+                    echo "Skipping minikube docker-env, using images from Docker Hub"
 
                     // Appliquer les fichiers YAML si présents
                     def k8sFiles = [
@@ -73,14 +72,14 @@ pipeline {
                     sh 'kubectl -n devops delete pod -l app=springboot-app --ignore-not-found'
 
                     // Mettre à jour l'image du déploiement Spring Boot si le déploiement existe
-                    sh '''
+                    sh """
                         if kubectl get deployment springboot-app -n devops > /dev/null 2>&1; then
                             kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record
                             kubectl -n devops rollout status deployment/springboot-app --timeout=300s
                         else
                             echo "Deployment springboot-app not found, skipping image update."
                         fi
-                    '''
+                    """
                 }
             }
         }
