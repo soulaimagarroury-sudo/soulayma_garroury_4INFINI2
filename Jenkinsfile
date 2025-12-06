@@ -48,7 +48,31 @@ pipeline {
                     """
                 }
             }
-        }
+        } 
+        stage('Deploy to Kubernetes') {
+           steps {
+            sh '''
+            # Utiliser le contexte Minikube
+            kubectl config use-context minikube
+
+            # Déployer MySQL
+            kubectl apply -n devops -f k8s/mysql-pvc.yaml
+            kubectl apply -n devops -f k8s/mysql-deployment.yaml
+            kubectl apply -n devops -f k8s/mysql-service.yaml
+
+            # Déployer Spring Boot
+            kubectl apply -n devops -f k8s/spring-deployment.yaml
+            kubectl apply -n devops -f k8s/spring-service.yaml
+
+            # Mettre à jour l'image du déploiement Spring Boot
+            kubectl -n devops set image deployment/springboot-app springboot-app=soulayma1/student-management:61
+
+            # Attendre que le déploiement Spring Boot soit prêt
+            kubectl -n devops rollout status deployment/springboot-app --timeout=180s
+        '''
+    }
+}
+
     }
 
     post {
