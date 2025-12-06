@@ -2,16 +2,15 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "soulayma1/student-management"
-        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        DOCKER_USER = 'soulayma1'
+        DOCKER_PASS = credentials('dockerhub-password') // Ton credential DockerHub dans Jenkins
     }
 
     stages {
-        stage('Checkout') {
+        stage('Checkout SCM') {
             steps {
-                git credentialsId: 'github-private-token',
-                    url: 'https://github.com/soulaimagarroury-sudo/soulayma_garroury_4INFINI2.git',
-                    branch: 'main'
+                git url: 'https://github.com/soulaimagarroury-sudo/soulayma_garroury_4INFINI2.git',
+                    credentialsId: 'github-private-token'
             }
         }
 
@@ -23,70 +22,35 @@ pipeline {
 
         stage('Docker Build & Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
-                                                  usernameVariable: 'DOCKER_USER',
-                                                  passwordVariable: 'DOCKER_PASS')]) {
-                    sh """
-                       # Login Docker Hub
-                       echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-
-                       # Build image
-                       docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                       docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
-
-                       # Push images
-                       docker push ${IMAGE_NAME}:${IMAGE_TAG}
-                       docker push ${IMAGE_NAME}:latest
-                    """
+                script {
+                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
+                    sh 'docker build -t soulayma1/student-management:latest .'
+                    sh 'docker push soulayma1/student-management:latest'
                 }
             }
-        } 
+        }
 
-stage('Deploy to Kubernetes') {
-    steps {
-        sh '''
-        # Utiliser le contexte Minikube
-        kubectl config use-context minikube
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // Configurer Docker pour Minikube
+                    sh 'eval $(minikube -p minikube docker-env)'
 
-        # Utiliser l'image Docker locale de Minikube
-        eval $(minikube -p minikube docker-env)
-
-        # Appliquer les fichiers YAML si présents
-        for f in k8s/mysql-pvc.yaml k8s/mysql-deployment.yaml k8s/mysql-service.yaml k8s/spring-deployment.yaml k8s/spring-service.yaml; do
-            if [ -f "$f" ]; then
-                echo "Applying $f"
-                kubectl apply -n devops -f "$f"
-            else
-                echo "File $f not found, skipping..."
-            fi
-        done
-
-        # Patch du deployment Spring Boot pour utiliser l'image locale
-        kubectl -n devops patch deployment springboot-app \
-          -p '{"spec":{"template":{"spec":{"containers":[{"name":"springboot-app","image":"'"${IMAGE_NAME}:${IMAGE_TAG}"'","imagePullPolicy":"Never"}]}}}}'
-
-        # Supprimer les pods existants pour forcer le rollout
-        kubectl -n devops delete pod -l app=springboot-app --ignore-not-found
-
-        # Attendre que le déploiement soit terminé
-        # Timeout plus long si nécessaire
-        kubectl -n devops rollout status deployment/springboot-app --timeout=600s
-
-        # Vérifier l'état final
-        kubectl -n devops get pods -o wide
-        '''
-    }
-}
-
-
+                    // Appliquer les fichiers Kubernetes
+                    sh 'kubectl apply -f k8s/mysql-pvc.yaml'
+                    sh 'kubectl apply -f k8s/mysql-deployment.yaml -n devops'
+                    sh 'kubectl apply -f k8s/spring-deployment.yaml -n devops'
+                }
+            }
+        }
     }
 
     post {
         success {
-            echo "Pipeline finished SUCCESS - image: ${IMAGE_NAME}:${IMAGE_TAG}"
+            echo 'Pipeline terminé avec succès 🚀'
         }
         failure {
-            echo "Pipeline FAILED"
+            echo 'Pipeline échoué ❌'
         }
     }
 }
