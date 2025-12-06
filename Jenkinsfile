@@ -2,15 +2,16 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_USER = 'soulayma1'
-        DOCKER_PASS = credentials('dockerhub-cred') // Ton credential DockerHub dans Jenkins
+        IMAGE_NAME = "soulayma1/student-management"
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
     }
 
     stages {
-        stage('Checkout SCM') {
+        stage('Checkout') {
             steps {
-                git url: 'https://github.com/soulaimagarroury-sudo/soulayma_garroury_4INFINI2.git',
-                    credentialsId: 'github-private-token'
+                git credentialsId: 'github-private-token',
+                    url: 'https://github.com/soulaimagarroury-sudo/soulayma_garroury_4INFINI2.git',
+                    branch: 'main'
             }
         }
 
@@ -22,13 +23,24 @@ pipeline {
 
         stage('Docker Build & Push') {
             steps {
-                script {
-                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
-                    sh 'docker build -t soulayma1/student-management:latest .'
-                    sh 'docker push soulayma1/student-management:latest'
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
+                                                  usernameVariable: 'DOCKER_USER',
+                                                  passwordVariable: 'DOCKER_PASS')]) {
+                    sh """
+                       # Login Docker Hub
+                       echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+
+                       # Build and tag image
+                       docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                       docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+
+                       # Push images to Docker Hub
+                       docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                       docker push ${IMAGE_NAME}:latest
+                    """
                 }
             }
-        }
+        } 
 
         stage('Deploy to Kubernetes') {
             steps {
@@ -36,10 +48,34 @@ pipeline {
                     // Configurer Docker pour Minikube
                     sh 'eval $(minikube -p minikube docker-env)'
 
-                    // Appliquer les fichiers Kubernetes
-                    sh 'kubectl apply -f k8s/mysql-pvc.yaml'
-                    sh 'kubectl apply -f k8s/mysql-deployment.yaml -n devops'
-                    sh 'kubectl apply -f k8s/spring-deployment.yaml -n devops'
+                    // Appliquer tous les fichiers YAML
+                    def k8sFiles = [
+                        'k8s/mysql-pvc.yaml',
+                        'k8s/mysql-deployment.yaml',
+                        'k8s/mysql-service.yaml',
+                        'k8s/spring-deployment.yaml',
+                        'k8s/spring-service.yaml'
+                    ]
+
+                    for (f in k8sFiles) {
+                        if (fileExists(f)) {
+                            echo "Applying $f"
+                            sh "kubectl apply -n devops -f $f"
+                        } else {
+                            echo "File $f not found, skipping..."
+                        }
+                    }
+
+                    // Supprimer les pods Spring Boot existants pour forcer le redéploiement
+                    sh 'kubectl -n devops delete pod -l app=springboot-app --ignore-not-found'
+
+                    // Mettre à jour l'image du déploiement Spring Boot
+                    if (sh(script: "kubectl get deployment springboot-app -n devops", returnStatus: true) == 0) {
+                        sh "kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record"
+                        sh "kubectl -n devops rollout status deployment/springboot-app --timeout=300s"
+                    } else {
+                        echo "Deployment springboot-app not found, skipping image update."
+                    }
                 }
             }
         }
@@ -47,10 +83,10 @@ pipeline {
 
     post {
         success {
-            echo 'Pipeline terminé avec succès 🚀'
+            echo "Pipeline finished SUCCESS - image: ${IMAGE_NAME}:${IMAGE_TAG}"
         }
         failure {
-            echo 'Pipeline échoué ❌'
+            echo "Pipeline FAILED"
         }
     }
 }
