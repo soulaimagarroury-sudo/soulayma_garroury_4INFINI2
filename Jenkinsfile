@@ -74,8 +74,9 @@ pipeline {
                 echo "Deployment springboot-app not found, skipping image update."
             }
         }
-        }
-    }
+        
+    } 
+}
 
     post {
         success {
