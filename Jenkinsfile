@@ -42,42 +42,38 @@ pipeline {
             }
         } 
 
-        stage('Deploy to Kubernetes') {
-            steps {
-                script {
-                    // Configurer Docker pour Minikube
-                    sh 'eval $(minikube -p minikube docker-env)'
+      stage('Deploy to Kubernetes') {
+    steps {
+        script {
+            // On suppose que kubectl est déjà configuré avec le contexte minikube
+            def k8sFiles = [
+                'k8s/mysql-pvc.yaml',
+                'k8s/mysql-deployment.yaml',
+                'k8s/mysql-service.yaml',
+                'k8s/spring-deployment.yaml',
+                'k8s/spring-service.yaml'
+            ]
 
-                    // Appliquer tous les fichiers YAML
-                    def k8sFiles = [
-                        'k8s/mysql-pvc.yaml',
-                        'k8s/mysql-deployment.yaml',
-                        'k8s/mysql-service.yaml',
-                        'k8s/spring-deployment.yaml',
-                        'k8s/spring-service.yaml'
-                    ]
-
-                    for (f in k8sFiles) {
-                        if (fileExists(f)) {
-                            echo "Applying $f"
-                            sh "kubectl apply -n devops -f $f"
-                        } else {
-                            echo "File $f not found, skipping..."
-                        }
-                    }
-
-                    // Supprimer les pods Spring Boot existants pour forcer le redéploiement
-                    sh 'kubectl -n devops delete pod -l app=springboot-app --ignore-not-found'
-
-                    // Mettre à jour l'image du déploiement Spring Boot
-                    if (sh(script: "kubectl get deployment springboot-app -n devops", returnStatus: true) == 0) {
-                        sh "kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record"
-                        sh "kubectl -n devops rollout status deployment/springboot-app --timeout=300s"
-                    } else {
-                        echo "Deployment springboot-app not found, skipping image update."
-                    }
+            for (f in k8sFiles) {
+                if (fileExists(f)) {
+                    echo "Applying $f"
+                    sh "kubectl apply -n devops -f $f"
+                } else {
+                    echo "File $f not found, skipping..."
                 }
             }
+
+            // Supprimer les pods Spring Boot existants
+            sh 'kubectl -n devops delete pod -l app=springboot-app --ignore-not-found'
+
+            // Mettre à jour l'image du déploiement Spring Boot
+            if (sh(script: "kubectl get deployment springboot-app -n devops", returnStatus: true) == 0) {
+                sh "kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record"
+                sh "kubectl -n devops rollout status deployment/springboot-app --timeout=300s"
+            } else {
+                echo "Deployment springboot-app not found, skipping image update."
+            }
+        }
         }
     }
 
