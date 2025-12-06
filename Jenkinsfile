@@ -42,40 +42,33 @@ pipeline {
             }
         } 
 
-        stage('Deploy to Kubernetes') {
-            steps {
-                sh '''
-                # Utiliser le contexte Minikube
-                kubectl config use-context minikube
+       stage('Deploy to Kubernetes') {
+    steps {
+        sh '''
+        # Utiliser le contexte Minikube
+        kubectl config use-context minikube
 
-                # Liste des fichiers à appliquer
-                files=(
-                    k8s/mysql-pvc.yaml
-                    k8s/mysql-deployment.yaml
-                    k8s/mysql-service.yaml
-                    k8s/spring-deployment.yaml
-                    k8s/spring-service.yaml
-                )
+        # Déployer les fichiers YAML si présents
+        for f in k8s/mysql-pvc.yaml k8s/mysql-deployment.yaml k8s/mysql-service.yaml k8s/spring-deployment.yaml k8s/spring-service.yaml; do
+            if [ -f "$f" ]; then
+                echo "Applying $f"
+                kubectl apply -n devops -f "$f"
+            else
+                echo "File $f not found, skipping..."
+            fi
+        done
 
-                for f in "${files[@]}"; do
-                    if [ -f "$f" ]; then
-                        echo "Applying $f"
-                        kubectl apply -n devops -f "$f"
-                    else
-                        echo "File $f not found, skipping..."
-                    fi
-                done
+        # Mettre à jour l'image du déploiement Spring Boot si le déploiement existe
+        if kubectl get deployment springboot-app -n devops > /dev/null 2>&1; then
+            kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG}
+            kubectl -n devops rollout status deployment/springboot-app --timeout=180s
+        else
+            echo "Deployment springboot-app not found, skipping image update."
+        fi
+        '''
+    }
+}
 
-                # Mettre à jour l'image du déploiement Spring Boot si le déploiement existe
-                if kubectl get deployment springboot-app -n devops > /dev/null 2>&1; then
-                    kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG}
-                    kubectl -n devops rollout status deployment/springboot-app --timeout=180s
-                else
-                    echo "Deployment springboot-app not found, skipping image update."
-                fi
-                '''
-            }
-        }
     }
 
     post {
