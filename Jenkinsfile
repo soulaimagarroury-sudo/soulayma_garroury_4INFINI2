@@ -30,11 +30,11 @@ pipeline {
                        # Login Docker Hub
                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 
-                       # Build and tag image
+                       # Build image
                        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
 
-                       # Push images to Docker Hub
+                       # Push images
                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
                        docker push ${IMAGE_NAME}:latest
                     """
@@ -42,41 +42,49 @@ pipeline {
             }
         } 
 
-      stage('Deploy to Kubernetes') {
-    steps {
-        script {
-            // On suppose que kubectl est déjà configuré avec le contexte minikube
-            def k8sFiles = [
-                'k8s/mysql-pvc.yaml',
-                'k8s/mysql-deployment.yaml',
-                'k8s/mysql-service.yaml',
-                'k8s/spring-deployment.yaml',
-                'k8s/spring-service.yaml'
-            ]
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // Configurer l'environnement Docker pour Minikube
+                    def dockerEnvOutput = sh(script: 'minikube -p minikube docker-env', returnStdout: true).trim()
+                    sh "eval \"${dockerEnvOutput}\""
 
-            for (f in k8sFiles) {
-                if (fileExists(f)) {
-                    echo "Applying $f"
-                    sh "kubectl apply -n devops -f $f"
-                } else {
-                    echo "File $f not found, skipping..."
+                    // Appliquer les fichiers YAML si présents
+                    def k8sFiles = [
+                        'k8s/mysql-pvc.yaml',
+                        'k8s/mysql-deployment.yaml',
+                        'k8s/mysql-service.yaml',
+                        'k8s/spring-deployment.yaml',
+                        'k8s/spring-service.yaml'
+                    ]
+
+                    for (f in k8sFiles) {
+                        sh """
+                            if [ -f "$f" ]; then
+                                echo "Applying $f"
+                                kubectl apply -n devops -f "$f"
+                            else
+                                echo "File $f not found, skipping..."
+                            fi
+                        """
+                    }
+
+                    // Supprimer les pods Spring Boot existants pour éviter le blocage
+                    sh 'kubectl -n devops delete pod -l app=springboot-app --ignore-not-found'
+
+                    // Mettre à jour l'image du déploiement Spring Boot si le déploiement existe
+                    sh '''
+                        if kubectl get deployment springboot-app -n devops > /dev/null 2>&1; then
+                            kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record
+                            kubectl -n devops rollout status deployment/springboot-app --timeout=300s
+                        else
+                            echo "Deployment springboot-app not found, skipping image update."
+                        fi
+                    '''
                 }
             }
-
-            // Supprimer les pods Spring Boot existants
-            sh 'kubectl -n devops delete pod -l app=springboot-app --ignore-not-found'
-
-            // Mettre à jour l'image du déploiement Spring Boot
-            if (sh(script: "kubectl get deployment springboot-app -n devops", returnStatus: true) == 0) {
-                sh "kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record"
-                sh "kubectl -n devops rollout status deployment/springboot-app --timeout=300s"
-            } else {
-                echo "Deployment springboot-app not found, skipping image update."
-            }
         }
-        
-    } 
-}
+    }
 
     post {
         success {
