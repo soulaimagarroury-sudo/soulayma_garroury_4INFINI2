@@ -53,30 +53,41 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                // Sélectionne le contexte Minikube
-                sh "kubectl config use-context minikube || true"
+                script {
+                    try {
+                        // Sélection du contexte Minikube
+                        sh "kubectl config use-context minikube"
 
-                // Déploiement des manifests K8s
-                sh "kubectl apply -n ${NAMESPACE} -f ${K8S_DIR}/mysql-pvc.yaml || true"
-                sh "kubectl apply -n ${NAMESPACE} -f ${K8S_DIR}/mysql-deployment.yaml"
-                sh "kubectl apply -n ${NAMESPACE} -f ${K8S_DIR}/spring-deployment.yaml"
-                sh "kubectl apply -n ${NAMESPACE} -f ${K8S_DIR}/spring-service.yaml"
+                        // Appliquer les manifests Kubernetes
+                        def k8sFiles = ['mysql-pvc.yaml', 'mysql-deployment.yaml', 'mysql-service.yaml', 'spring-deployment.yaml', 'spring-service.yaml']
+                        for (file in k8sFiles) {
+                            def filePath = "${K8S_DIR}/${file}"
+                            if (fileExists(filePath)) {
+                                sh "kubectl apply -n ${NAMESPACE} -f ${filePath}"
+                            } else {
+                                echo "⚠️  Fichier manquant : ${filePath} (ignoring)"
+                            }
+                        }
 
-                // Met à jour l'image du déploiement Spring Boot
-                sh "kubectl -n ${NAMESPACE} set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record || true"
-                
-                // Vérifie le rollout pour s'assurer que le déploiement est terminé
-                sh "kubectl -n ${NAMESPACE} rollout status deployment/springboot-app --timeout=120s"
+                        // Mettre à jour l'image du déploiement Spring Boot
+                        sh "kubectl -n ${NAMESPACE} set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record"
+
+                        // Vérifier le rollout
+                        sh "kubectl -n ${NAMESPACE} rollout status deployment/springboot-app --timeout=120s"
+                    } catch (Exception e) {
+                        error "Déploiement Kubernetes échoué : ${e}"
+                    }
+                }
             }
         }
     }
 
     post {
         success {
-            echo "Pipeline finished SUCCESS - ${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "✅ Pipeline finished SUCCESS - ${IMAGE_NAME}:${IMAGE_TAG}"
         }
         failure {
-            echo "Pipeline FAILED"
+            echo "❌ Pipeline FAILED"
         }
     }
 }
