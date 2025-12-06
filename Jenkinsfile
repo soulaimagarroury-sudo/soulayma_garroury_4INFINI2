@@ -42,16 +42,13 @@ pipeline {
             }
         } 
 
-stage('Deploy to Kubernetes') {
+  stage('Deploy to Kubernetes') {
     steps {
         sh '''
         # Utiliser le contexte Minikube
         kubectl config use-context minikube
 
-        # Utiliser l'image Docker locale de Minikube
-        eval $(minikube -p minikube docker-env)
-
-        # Appliquer les fichiers YAML si présents
+        # Déployer les fichiers YAML si présents
         for f in k8s/mysql-pvc.yaml k8s/mysql-deployment.yaml k8s/mysql-service.yaml k8s/spring-deployment.yaml k8s/spring-service.yaml; do
             if [ -f "$f" ]; then
                 echo "Applying $f"
@@ -61,19 +58,16 @@ stage('Deploy to Kubernetes') {
             fi
         done
 
-        # Patch du deployment Spring Boot pour utiliser l'image locale
-        kubectl -n devops patch deployment springboot-app \
-          -p '{"spec":{"template":{"spec":{"containers":[{"name":"springboot-app","image":"'"${IMAGE_NAME}:${IMAGE_TAG}"'","imagePullPolicy":"Never"}]}}}}'
-
-        # Supprimer les pods existants pour forcer le rollout
+        # Supprimer les pods Spring Boot existants pour éviter le blocage
         kubectl -n devops delete pod -l app=springboot-app --ignore-not-found
 
-        # Attendre que le déploiement soit terminé
-        # Timeout plus long si nécessaire
-        kubectl -n devops rollout status deployment/springboot-app --timeout=600s
-
-        # Vérifier l'état final
-        kubectl -n devops get pods -o wide
+        # Mettre à jour l'image du déploiement Spring Boot si le déploiement existe
+        if kubectl get deployment springboot-app -n devops > /dev/null 2>&1; then
+            kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record
+            kubectl -n devops rollout status deployment/springboot-app --timeout=300s
+        else
+            echo "Deployment springboot-app not found, skipping image update."
+        fi
         '''
     }
 }
