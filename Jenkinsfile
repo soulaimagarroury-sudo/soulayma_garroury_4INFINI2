@@ -2,22 +2,15 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "soulayma1/student-management"
-        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        DOCKER_USER = 'soulayma1'
+        DOCKER_PASS = credentials('dockerhub-cred') // Ton credential DockerHub dans Jenkins
     }
 
     stages {
-        stage('Checkout') {
+        stage('Checkout SCM') {
             steps {
-                git credentialsId: 'github-private-token',
-                    url: 'https://github.com/soulaimagarroury-sudo/soulayma_garroury_4INFINI2.git',
-                    branch: 'main'
-            }
-        }
-
-        stage('Build (Maven)') {
-            steps {
-                sh './mvnw clean package -DskipTests'
+                git url: 'https://github.com/soulaimagarroury-sudo/soulayma_garroury_4INFINI2.git',
+                    credentialsId: 'github-private-token'
             }
         }
 
