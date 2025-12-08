@@ -6,7 +6,9 @@ metadata:
 type: Opaque
 stringData:
   mysql-root-password: soulayma123
-  mysql-database: foyer
+  mysql-database: studentdb
+  mysql-user: user
+  mysql-password: soulayma123
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -14,7 +16,7 @@ metadata:
   name: mysql
   namespace: devops
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: mysql
@@ -25,7 +27,7 @@ spec:
     spec:
       containers:
         - name: mysql
-          image: mysql:8
+          image: mysql:8.0
           env:
             - name: MYSQL_ROOT_PASSWORD
               valueFrom:
@@ -38,9 +40,15 @@ spec:
                   name: mysql-secret
                   key: mysql-database
             - name: MYSQL_USER
-              value: user
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-user
             - name: MYSQL_PASSWORD
-              value: soulayma123
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-password
           ports:
             - containerPort: 3306
           volumeMounts:
@@ -48,19 +56,6 @@ spec:
               mountPath: /var/lib/mysql
       volumes:
         - name: mysql-data
-          emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: mysql-service
-  namespace: devops
-spec:
-  selector:
-    app: mysql
-  ports:
-    - protocol: TCP
-      port: 3306
-      targetPort: 3306
-  clusterIP: None
+          persistentVolumeClaim:
+            claimName: mysql-pvc
 
