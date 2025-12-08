@@ -38,6 +38,31 @@ pipeline {
                 }
             }
         }
+                stage('Deploy to Kubernetes') {
+            steps {
+                sh '''
+                  echo "Deploying to Kubernetes (namespace devops)"
+
+                  # Appliquer les manifests K8s depuis le dossier k8s/
+                  kubectl apply -n devops -f k8s/mysql-pv.yaml
+                  kubectl apply -n devops -f k8s/mysql-pvc.yaml
+                  kubectl apply -n devops -f k8s/mysql-deployment.yaml
+                  kubectl apply -n devops -f k8s/mysql-service.yaml
+                  kubectl apply -n devops -f k8s/spring-deployment.yaml
+                  kubectl apply -n devops -f k8s/spring-service.yaml
+
+                  # Met à jour l'image du déploiement Spring avec l'image créée par ce build
+                  kubectl -n devops set image deployment/springboot-app springboot-app=${IMAGE_NAME}:${IMAGE_TAG} --record
+
+                  # Attend que le déploiement soit OK
+                  kubectl -n devops rollout status deployment/springboot-app --timeout=300s
+
+                  # Affiche l'état final
+                  kubectl get pods -n devops
+                '''
+            }
+        }
+
     }
 
     post {
