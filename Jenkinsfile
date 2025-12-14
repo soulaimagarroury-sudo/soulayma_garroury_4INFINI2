@@ -20,6 +20,18 @@ pipeline {
                 sh './mvnw clean package -DskipTests'
             }
         }
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('sonarqube-k8s') {
+                    sh '''
+                       mvn clean verify sonar:sonar \
+                         -Dsonar.projectKey=student-management \
+                         -Dsonar.projectName=student-management \
+                         -Dsonar.host.url=$SONAR_HOST_URL
+                    '''
+                }
+            }
+        }
 
         stage('Docker Build & Push') {
             steps {
